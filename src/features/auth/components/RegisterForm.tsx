@@ -2,12 +2,16 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useRegister } from "../hooks/use-auth";
 import { registerSchema } from "../types/auth.types";
 import { ZodError } from "zod";
 
 export default function RegisterForm() {
+  const router = useRouter();
   const [formData, setFormData] = useState({
+    firstName: "",
+    lastName: "",
     email: "",
     password: "",
     confirmPassword: "",
@@ -46,6 +50,8 @@ export default function RegisterForm() {
     try {
       // Validate input data using Zod
       const validatedData = registerSchema.parse({
+        firstName: formData.firstName,
+        lastName: formData.lastName,
         email: formData.email,
         password: formData.password,
         confirmPassword: formData.confirmPassword,
@@ -58,11 +64,14 @@ export default function RegisterForm() {
           if (data.success) {
             setSuccessMessage(data.message || "Registration successful!");
             setFormData({
+              firstName: "",
+              lastName: "",
               email: "",
               password: "",
               confirmPassword: "",
               agreeTerms: true,
             });
+            router.push("/");
           } else {
             setErrorMessage(data.message || "Registration failed. Please try again.");
           }
@@ -165,6 +174,46 @@ export default function RegisterForm() {
                 {/* Form Registration */}
                 <form className="_social_registration_form" onSubmit={handleSubmit}>
                   <div className="row">
+
+                    {/* First Name Input */}
+                    <div className="col-xl-6 col-lg-6 col-md-6 col-sm-12">
+                      <div className="_social_registration_form_input _mar_b14">
+                        <label className="_social_registration_label _mar_b8">First Name</label>
+                        <input
+                          type="text"
+                          name="firstName"
+                          value={formData.firstName}
+                          onChange={handleChange}
+                          className={`form-control _social_registration_input ${validationErrors.firstName ? "is-invalid" : ""}`}
+                          placeholder="John"
+                        />
+                        {validationErrors.firstName && (
+                          <div className="text-danger mt-1 small" style={{ fontSize: "12px", textAlign: "left" }}>
+                            {validationErrors.firstName}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Last Name Input */}
+                    <div className="col-xl-6 col-lg-6 col-md-6 col-sm-12">
+                      <div className="_social_registration_form_input _mar_b14">
+                        <label className="_social_registration_label _mar_b8">Last Name</label>
+                        <input
+                          type="text"
+                          name="lastName"
+                          value={formData.lastName}
+                          onChange={handleChange}
+                          className={`form-control _social_registration_input ${validationErrors.lastName ? "is-invalid" : ""}`}
+                          placeholder="Doe"
+                        />
+                        {validationErrors.lastName && (
+                          <div className="text-danger mt-1 small" style={{ fontSize: "12px", textAlign: "left" }}>
+                            {validationErrors.lastName}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                     
                     {/* Email Input */}
                     <div className="col-xl-12 col-lg-12 col-md-12 col-sm-12">
