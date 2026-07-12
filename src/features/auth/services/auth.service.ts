@@ -11,7 +11,9 @@ export const authService = {
    * Registers a new user.
    */
   async register(input: RegisterInput): Promise<RegisterResponse> {
-    const response = await apiClient.post<RegisterResponse>("/api/register", {
+    const response = await apiClient.post<RegisterResponse>("/auth/register", {
+      firstName: input.firstName,
+      lastName: input.lastName,
       email: input.email,
       password: input.password,
     });
@@ -22,7 +24,7 @@ export const authService = {
    * Logs in an existing user.
    */
   async login(input: LoginInput): Promise<LoginResponse> {
-    const response = await apiClient.post<LoginResponse>("/api/login", {
+    const response = await apiClient.post<LoginResponse>("/auth/login", {
       email: input.email,
       password: input.password,
     });
