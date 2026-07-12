@@ -2,11 +2,13 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useLogin } from "../hooks/use-auth";
 import { loginSchema } from "../types/auth.types";
 import { ZodError } from "zod";
 
 export default function LoginForm() {
+  const router = useRouter();
   const [formData, setFormData] = useState({
     email: "",
     password: "",
@@ -55,17 +57,13 @@ export default function LoginForm() {
         onSuccess: (data) => {
           if (data.success) {
             setSuccessMessage(data.message || "Logged in successfully!");
-            
-            // Save authorization token if returned in response data
-            if (data.data?.token) {
-              localStorage.setItem("token", data.data.token);
-            }
 
             setFormData({
               email: "",
               password: "",
               rememberMe: true,
             });
+            router.push("/");
           } else {
             setErrorMessage(data.message || "Login failed. Please check your credentials.");
           }

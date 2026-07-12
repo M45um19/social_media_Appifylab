@@ -62,8 +62,8 @@ my-next-app/
 │   │   └── api-client.ts   # Configured Axios instance with interceptors for refresh tokens
 │   ├── providers/          # GLOBAL CLIENT PROVIDERS
 │   │   └── query-provider.tsx # Houses the TanStack QueryClient Provider wrapper
-│   └── utils/              # PURE UTILITIES (Formatting dates, currencies, strings)
+│   ├── utils/              # PURE UTILITIES (Formatting dates, currencies, strings)
+│   └── middleware.ts       # GLOBAL GUARD (Tenant & Auth validation gate at Edge level)
 │
-├── middleware.ts           # GLOBAL GUARD (Tenant & Auth validation gate at Edge level)
 ├── tsconfig.json
 └── package.json

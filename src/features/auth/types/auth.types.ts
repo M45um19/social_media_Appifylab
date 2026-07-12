@@ -7,6 +7,12 @@ import { ApiResponse } from "@/types/api.types";
 
 export const registerSchema = z
   .object({
+    firstName: z
+      .string()
+      .min(1, "First name is required"),
+    lastName: z
+      .string()
+      .min(1, "Last name is required"),
     email: z
       .string()
       .min(1, "Email is required")
@@ -30,7 +36,20 @@ export const registerSchema = z
 
 export type RegisterInput = z.infer<typeof registerSchema>;
 
-export type RegisterResponse = ApiResponse<unknown>;
+export interface RegisterResponseData {
+  accessToken: string;
+  refreshToken: string;
+  deviceId: string;
+  user: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    createdAt: string;
+  };
+}
+
+export type RegisterResponse = ApiResponse<RegisterResponseData>;
 
 // ============================================================================
 // Login Schema & Types
@@ -50,8 +69,14 @@ export const loginSchema = z.object({
 export type LoginInput = z.infer<typeof loginSchema>;
 
 export type LoginResponse = ApiResponse<{
-  token?: string;
-  user?: {
+  accessToken: string;
+  refreshToken: string;
+  deviceId: string;
+  user: {
+    id: string;
+    firstName: string;
+    lastName: string;
     email: string;
+    createdAt: string;
   };
 }>;

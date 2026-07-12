@@ -30,7 +30,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={poppins.variable}>
+    <html lang="en" className={poppins.variable} suppressHydrationWarning>
       <body className={poppins.className}>
         <QueryProvider>
           {children}
