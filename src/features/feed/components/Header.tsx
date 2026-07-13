@@ -1,14 +1,36 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import { getCookie } from "@/utils/cookies";
 
 export default function Header() {
   const [showNotify, setShowNotify] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [showNotifySettings, setShowNotifySettings] = useState(false);
+  const [userProfile, setUserProfile] = useState<{
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    profilePicture?: string;
+  } | null>(null);
 
   const notifyRef = useRef<HTMLLIElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const userJson = getCookie("user");
+    if (userJson) {
+      try {
+        const parsed = JSON.parse(userJson);
+        setTimeout(() => {
+          setUserProfile(parsed);
+        }, 0);
+      } catch (err) {
+        console.error("Failed to parse user cookie", err);
+      }
+    }
+  }, []);
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -244,10 +266,12 @@ export default function Header() {
             </ul>
             <div className="_header_nav_profile" ref={profileRef}>
               <div className="_header_nav_profile_image">
-                <img src="/assets/images/profile.png" alt="Image" className="_nav_profile_img" />
+                <img src={userProfile?.profilePicture || "/assets/images/profile.png"} alt="Image" className="_nav_profile_img" />
               </div>
               <div className="_header_nav_dropdown">
-                <p className="_header_nav_para">Dylan Field</p>
+                <p className="_header_nav_para">
+                  {userProfile ? `${userProfile.firstName} ${userProfile.lastName}` : "Dylan Field"}
+                </p>
                 <button
                   id="_profile_drop_show_btn"
                   className="_header_nav_dropdown_btn _dropdown_toggle"
@@ -266,10 +290,12 @@ export default function Header() {
               <div id="_prfoile_drop" className={`_nav_profile_dropdown _profile_dropdown ${showProfile ? "show" : ""}`}>
                 <div className="_nav_profile_dropdown_info">
                   <div className="_nav_profile_dropdown_image">
-                    <img src="/assets/images/profile.png" alt="Image" className="_nav_drop_img" />
+                    <img src={userProfile?.profilePicture || "/assets/images/profile.png"} alt="Image" className="_nav_drop_img" />
                   </div>
                   <div className="_nav_profile_dropdown_info_txt">
-                    <h4 className="_nav_dropdown_title">Dylan Field</h4>
+                    <h4 className="_nav_dropdown_title">
+                      {userProfile ? `${userProfile.firstName} ${userProfile.lastName}` : "Dylan Field"}
+                    </h4>
                     <a href="#" className="_nav_drop_profile">
                       View Profile
                     </a>

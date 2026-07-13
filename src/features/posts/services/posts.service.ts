@@ -6,6 +6,9 @@ import {
   CreatePostResponse,
   GetGlobalFeedQuery,
   GlobalFeedResponse,
+  ToggleLikeResponse,
+  CreateCommentInput,
+  CreateCommentResponse,
 } from "../types/posts.types";
 
 export const postsService = {
@@ -32,6 +35,22 @@ export const postsService = {
     const response = await apiClient.get<GlobalFeedResponse>("/posts", {
       params: query,
     });
+    return response.data;
+  },
+
+  /**
+   * Toggles a like on a specific post.
+   */
+  async toggleLike(postId: string): Promise<ToggleLikeResponse> {
+    const response = await apiClient.post<ToggleLikeResponse>(`/posts/${postId}/like`);
+    return response.data;
+  },
+
+  /**
+   * Adds a new comment to a specific post.
+   */
+  async addComment(postId: string, input: CreateCommentInput): Promise<CreateCommentResponse> {
+    const response = await apiClient.post<CreateCommentResponse>(`/posts/${postId}/comments`, input);
     return response.data;
   },
 };

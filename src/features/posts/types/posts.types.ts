@@ -76,6 +76,29 @@ export interface PostUser {
   profilePicture?: string;
 }
 
+export interface PostLiker {
+  id: string;
+  name: string;
+  pic?: string;
+}
+
+export interface PostRecentCommentReply {
+  userId: string;
+  firstName: string;
+  lastName: string;
+  profilePicture?: string;
+  text: string;
+}
+
+export interface PostRecentComment {
+  userId: string;
+  firstName?: string;
+  lastName?: string;
+  profilePicture?: string;
+  text: string;
+  reply?: PostRecentCommentReply | null;
+}
+
 export interface Post {
   id: string;
   userId: string;
@@ -86,9 +109,45 @@ export interface Post {
   createdAt: string;
   updatedAt: string;
   user: PostUser;
+  recentLikers?: PostLiker[];
+  recentComment?: PostRecentComment | null;
+  isLiked?: boolean;
 }
 
 export type CreatePostResponse = ApiResponse<Post>;
+
+// ============================================================================
+// Comment Types & Schemas
+// ============================================================================
+
+export const createCommentSchema = z.object({
+  content: z.string().min(1, "Comment content cannot be empty"),
+  parentId: z.string().optional(),
+});
+
+export type CreateCommentInput = z.infer<typeof createCommentSchema>;
+
+export interface PostComment {
+  id: string;
+  postId: string;
+  userId: string;
+  content: string;
+  parentId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type CreateCommentResponse = ApiResponse<PostComment>;
+
+// ============================================================================
+// Like Types & Responses
+// ============================================================================
+
+export interface ToggleLikeData {
+  liked: boolean;
+}
+
+export type ToggleLikeResponse = ApiResponse<ToggleLikeData>;
 
 // ============================================================================
 // Retrieve Global Feed Schema & Types
