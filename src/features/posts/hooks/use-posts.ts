@@ -7,6 +7,9 @@ import {
   CreatePostResponse,
   GetGlobalFeedQuery,
   GlobalFeedResponse,
+  ToggleLikeResponse,
+  CreateCommentInput,
+  CreateCommentResponse,
 } from "../types/posts.types";
 
 /**
@@ -61,6 +64,38 @@ export function useGlobalFeedInfinite(limit = 10) {
     getNextPageParam: (lastPage) => {
       // Return the cursor for the next page, or undefined if there are no more pages
       return lastPage.data?.nextCursor || undefined;
+    },
+  });
+}
+
+/**
+ * Custom hook to toggle a like on a post.
+ */
+export function useToggleLike() {
+  const queryClient = useQueryClient();
+
+  return useMutation<ToggleLikeResponse, Error, string>({
+    mutationFn: (postId) => postsService.toggleLike(postId),
+    onSuccess: (data) => {
+      if (data.success) {
+        queryClient.invalidateQueries({ queryKey: ["globalFeed"] });
+      }
+    },
+  });
+}
+
+/**
+ * Custom hook to add a comment to a post.
+ */
+export function useAddComment() {
+  const queryClient = useQueryClient();
+
+  return useMutation<CreateCommentResponse, Error, { postId: string; input: CreateCommentInput }>({
+    mutationFn: ({ postId, input }) => postsService.addComment(postId, input),
+    onSuccess: (data) => {
+      if (data.success) {
+        queryClient.invalidateQueries({ queryKey: ["globalFeed"] });
+      }
     },
   });
 }
