@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { useGlobalFeedInfinite, useCreatePost, useGeneratePresignedUrl } from "@/features/posts/hooks/use-posts";
 
 interface Comment {
-  id: number;
+  id: number | string;
   name: string;
   avatar: string;
   text: string;
@@ -12,7 +13,7 @@ interface Comment {
 }
 
 interface Post {
-  id: number;
+  id: number | string;
   authorName: string;
   authorAvatar: string;
   timeAgo: string;
@@ -29,141 +30,258 @@ interface Post {
 
 export default function MiddleContent() {
   const [newPostText, setNewPostText] = useState("");
-  const [activeCommentPostId, setActiveCommentPostId] = useState<number | null>(null);
-  const [commentInputs, setCommentInputs] = useState<Record<number, string>>({});
+  const [activeCommentPostId, setActiveCommentPostId] = useState<number | string | null>(null);
+  const [commentInputs, setCommentInputs] = useState<Record<string | number, string>>({});
 
-  const [posts, setPosts] = useState<Post[]>([
-    {
-      id: 1,
-      authorName: "Karim Saif",
-      authorAvatar: "/assets/images/post_img.png",
-      timeAgo: "5 minute ago",
-      visibility: "Public",
-      title: "-Healthy Tracking App",
-      image: "/assets/images/timeline_img.png",
-      reacts: 9,
-      commentsCount: 12,
-      sharesCount: 122,
-      hasLiked: true,
-      comments: [
-        {
-          id: 101,
-          name: "Radovan SkillArena",
-          avatar: "/assets/images/txt_img.png",
-          text: "It is a long established fact that a reader will be distracted by the readable content of a page when looking at its layout.",
-          time: "21m",
-          likes: 198,
-        },
-      ],
-    },
-    {
-      id: 2,
-      authorName: "Karim Saif",
-      authorAvatar: "/assets/images/post_img.png",
-      timeAgo: "5 minute ago",
-      visibility: "Public",
-      title: "-Healthy Tracking App",
-      image: "/assets/images/timeline_img.png",
-      reacts: 9,
-      commentsCount: 12,
-      sharesCount: 122,
-      hasLiked: false,
-      comments: [
-        {
-          id: 201,
-          name: "Radovan SkillArena",
-          avatar: "/assets/images/txt_img.png",
-          text: "It is a long established fact that a reader will be distracted by the readable content of a page when looking at its layout.",
-          time: "21m",
-          likes: 198,
-        },
-      ],
-    },
-  ]);
+  const [locallyCreatedPosts, setLocallyCreatedPosts] = useState<Post[]>([]);
+  const [deletedPostIds, setDeletedPostIds] = useState<Set<string | number>>(new Set());
+  const [likedPostIds, setLikedPostIds] = useState<Set<string | number>>(new Set());
+  const [localComments, setLocalComments] = useState<Record<string | number, Comment[]>>({});
+  const [activeDropdownPostId, setActiveDropdownPostId] = useState<number | string | null>(null);
+
+  const {
+    data: feedData,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useGlobalFeedInfinite(10);
+  const createPostMutation = useCreatePost();
+  const presignedUrlMutation = useGeneratePresignedUrl();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+  const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadType, setUploadType] = useState<"image" | "video">("image");
+
+  const formatTimeAgo = (dateString: string): string => {
+    try {
+      const now = new Date();
+      const date = new Date(dateString);
+      const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+      if (seconds < 60) return "Just now";
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return `${minutes}m ago`;
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return `${hours}h ago`;
+      const days = Math.floor(hours / 24);
+      return `${days}d ago`;
+    } catch {
+      return "Just now";
+    }
+  };
+
+  // Derive posts directly from infinite query pages
+  const queryPosts: Post[] = feedData?.pages
+    ? feedData.pages.flatMap((page) => {
+        return (page.data?.posts || []).map((p) => {
+          const hasLiked = likedPostIds.has(p.id);
+          const commentsList = localComments[p.id] || [];
+          return {
+            id: p.id,
+            authorName: `${p.user.firstName} ${p.user.lastName}`,
+            authorAvatar: p.user.profilePicture || "/assets/images/post_img.png",
+            timeAgo: formatTimeAgo(p.createdAt),
+            visibility: "Public",
+            title: p.content,
+            image: p.mediaUrls && p.mediaUrls.length > 0 ? p.mediaUrls[0] : undefined,
+            reacts: (p.likesCount || 0) + (hasLiked ? 1 : 0),
+            commentsCount: (p.commentsCount || 0) + commentsList.length,
+            sharesCount: 122,
+            hasLiked,
+            comments: commentsList,
+            showDropdown: p.id === activeDropdownPostId,
+          };
+        });
+      })
+    : [];
+
+  const visiblePosts = queryPosts.filter((p) => !deletedPostIds.has(p.id));
+
+  const mappedLocallyCreated = locallyCreatedPosts.map((p) => {
+    const hasLiked = likedPostIds.has(p.id);
+    const commentsList = localComments[p.id] || [];
+    return {
+      ...p,
+      reacts: (p.reacts || 0) + (hasLiked ? 1 : 0),
+      commentsCount: (p.commentsCount || 0) + commentsList.length,
+      hasLiked,
+      comments: commentsList,
+      showDropdown: p.id === activeDropdownPostId,
+    };
+  });
+
+  const posts = [...mappedLocallyCreated, ...visiblePosts];
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const firstEntry = entries[0];
+        if (firstEntry.isIntersecting && hasNextPage && !isFetchingNextPage) {
+          fetchNextPage();
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    const currentRef = loadMoreRef.current;
+    if (currentRef) {
+      observer.observe(currentRef);
+    }
+
+    return () => {
+      if (currentRef) {
+        observer.unobserve(currentRef);
+      }
+    };
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage, posts.length]);
+
+  const handlePhotoClick = (type: "image" | "video") => {
+    setUploadType(type);
+    setTimeout(() => {
+      fileInputRef.current?.click();
+    }, 0);
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const format = file.name.split(".").pop()?.toLowerCase() || "";
+    const size = file.size;
+
+    setIsUploading(true);
+    try {
+      const res = await presignedUrlMutation.mutateAsync({
+        resourceType: uploadType,
+        size,
+        format,
+      });
+
+      if (res.success && res.data) {
+        const { signature, timestamp, folder, publicId, apiKey, cloudName } = res.data;
+
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("api_key", apiKey);
+        formData.append("timestamp", timestamp.toString());
+        formData.append("signature", signature);
+        formData.append("folder", folder);
+        formData.append("public_id", publicId);
+
+        const uploadRes = await fetch(
+          `https://api.cloudinary.com/v1_1/${cloudName}/${uploadType}/upload`,
+          {
+            method: "POST",
+            body: formData,
+          }
+        );
+
+        const uploadData = await uploadRes.json();
+        if (uploadData.secure_url) {
+          setSelectedImageUrl(uploadData.secure_url);
+        } else {
+          alert(`Failed to upload ${uploadType}: ` + (uploadData.error?.message || "Unknown error"));
+        }
+      }
+    } catch (err) {
+      console.error("Presigned URL generation failed:", err);
+      alert(`Error uploading ${uploadType}. Allowed formats: image: jpeg, jpg, png, webp; video: mp4, mkv. Max size: 10MB image, 50MB video.`);
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   const handleCreatePost = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPostText.trim()) return;
+    if (!newPostText.trim() && !selectedImageUrl) return;
 
-    const newPost: Post = {
-      id: Date.now(),
-      authorName: "Dylan Field",
-      authorAvatar: "/assets/images/profile.png",
-      timeAgo: "Just now",
-      visibility: "Public",
-      title: newPostText,
-      reacts: 0,
-      commentsCount: 0,
-      sharesCount: 0,
-      hasLiked: false,
-      comments: [],
-    };
-
-    setPosts([newPost, ...posts]);
-    setNewPostText("");
-  };
-
-  const handleReactToggle = (postId: number) => {
-    setPosts(
-      posts.map((post) => {
-        if (post.id === postId) {
-          const hasLiked = !post.hasLiked;
-          return {
-            ...post,
-            hasLiked,
-            reacts: hasLiked ? post.reacts + 1 : post.reacts - 1,
-          };
-        }
-        return post;
-      })
+    createPostMutation.mutate(
+      {
+        content: newPostText,
+        mediaUrls: selectedImageUrl ? [selectedImageUrl] : [],
+      },
+      {
+        onSuccess: (data) => {
+          if (data.success && data.data) {
+            const newPost = data.data;
+            const mappedNewPost: Post = {
+              id: newPost.id,
+              authorName: `${newPost.user.firstName} ${newPost.user.lastName}`,
+              authorAvatar: newPost.user.profilePicture || "/assets/images/post_img.png",
+              timeAgo: "Just now",
+              visibility: "Public",
+              title: newPost.content,
+              image: newPost.mediaUrls && newPost.mediaUrls.length > 0 ? newPost.mediaUrls[0] : undefined,
+              reacts: newPost.likesCount || 0,
+              commentsCount: newPost.commentsCount || 0,
+              sharesCount: 0,
+              hasLiked: false,
+              comments: [],
+            };
+            setLocallyCreatedPosts((prev) => [mappedNewPost, ...prev]);
+            setNewPostText("");
+            setSelectedImageUrl(null);
+            if (fileInputRef.current) {
+              fileInputRef.current.value = "";
+            }
+          }
+        },
+        onError: (err) => {
+          console.error("Failed to create post:", err);
+          alert("Failed to create post. Please try again.");
+        },
+      }
     );
   };
 
-  const handlePostDropdownToggle = (postId: number) => {
-    setPosts(
-      posts.map((post) => {
-        if (post.id === postId) {
-          return { ...post, showDropdown: !post.showDropdown };
-        }
-        return { ...post, showDropdown: false };
-      })
-    );
+  const handleReactToggle = (postId: number | string) => {
+    setLikedPostIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(postId)) {
+        next.delete(postId);
+      } else {
+        next.add(postId);
+      }
+      return next;
+    });
   };
 
-  const handleDeletePost = (postId: number) => {
-    setPosts(posts.filter((post) => post.id !== postId));
+  const handlePostDropdownToggle = (postId: number | string) => {
+    setActiveDropdownPostId(activeDropdownPostId === postId ? null : postId);
   };
 
-  const handleAddComment = (postId: number, e: React.FormEvent) => {
+  const handleDeletePost = (postId: number | string) => {
+    setDeletedPostIds((prev) => {
+      const next = new Set(prev);
+      next.add(postId);
+      return next;
+    });
+  };
+
+  const handleAddComment = (postId: number | string, e: React.FormEvent) => {
     e.preventDefault();
     const commentText = commentInputs[postId] || "";
     if (!commentText.trim()) return;
 
-    setPosts(
-      posts.map((post) => {
-        if (post.id === postId) {
-          const newComment: Comment = {
-            id: Date.now(),
-            name: "Dylan Field",
-            avatar: "/assets/images/profile.png",
-            text: commentText,
-            time: "1s",
-            likes: 0,
-          };
-          return {
-            ...post,
-            comments: [...post.comments, newComment],
-            commentsCount: post.commentsCount + 1,
-          };
-        }
-        return post;
-      })
-    );
+    const newComment: Comment = {
+      id: Date.now(),
+      name: "Dylan Field",
+      avatar: "/assets/images/profile.png",
+      text: commentText,
+      time: "1s",
+      likes: 0,
+    };
+
+    setLocalComments((prev) => ({
+      ...prev,
+      [postId]: [...(prev[postId] || []), newComment],
+    }));
 
     setCommentInputs({ ...commentInputs, [postId]: "" });
   };
 
-  const handleCommentInputChange = (postId: number, val: string) => {
+  const handleCommentInputChange = (postId: number | string, val: string) => {
     setCommentInputs({ ...commentInputs, [postId]: val });
   };
 
@@ -318,6 +436,62 @@ export default function MiddleContent() {
                     </svg>
                   </label>
                 )}
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept={uploadType === "image" ? "image/*" : "video/*"}
+                  style={{ display: "none" }}
+                  onChange={handleImageUpload}
+                />
+                {isUploading && (
+                  <div style={{ marginTop: "12px", color: "#666", fontSize: "14px" }}>
+                    Uploading media...
+                  </div>
+                )}
+                {!isUploading && selectedImageUrl && (
+                  <div style={{ position: "relative", marginTop: "12px", maxWidth: "240px" }}>
+                    {uploadType === "image" ? (
+                      <img
+                        src={selectedImageUrl}
+                        alt="Upload preview"
+                        style={{ width: "100%", borderRadius: "8px", border: "1px solid #eaeaea" }}
+                      />
+                    ) : (
+                      <video
+                        src={selectedImageUrl}
+                        controls
+                        style={{ width: "100%", borderRadius: "8px", border: "1px solid #eaeaea" }}
+                      />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedImageUrl(null);
+                        if (fileInputRef.current) fileInputRef.current.value = "";
+                      }}
+                      style={{
+                        position: "absolute",
+                        top: "-8px",
+                        right: "-8px",
+                        background: "#ff4d4f",
+                        color: "white",
+                        border: "none",
+                        borderRadius: "50%",
+                        width: "20px",
+                        height: "20px",
+                        fontSize: "12px",
+                        lineHeight: "20px",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        boxShadow: "0 2px 4px rgba(0,0,0,0.2)"
+                      }}
+                    >
+                      &times;
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -325,7 +499,7 @@ export default function MiddleContent() {
             <div className="_feed_inner_text_area_bottom">
               <div className="_feed_inner_text_area_item">
                 <div className="_feed_inner_text_area_bottom_photo _feed_common">
-                  <button type="button" className="_feed_inner_text_area_bottom_photo_link">
+                  <button type="button" className="_feed_inner_text_area_bottom_photo_link" onClick={() => handlePhotoClick("image")}>
                     <span className="_feed_inner_text_area_bottom_photo_iamge _mar_img">
                       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 20 20">
                         <path fill="#666" d="M13.916 0c3.109 0 5.18 2.429 5.18 5.914v8.17c0 3.486-2.072 5.916-5.18 5.916H5.999C2.89 20 .827 17.572.827 14.085v-8.17C.827 2.43 2.897 0 6 0h7.917zm0 1.504H5.999c-2.321 0-3.799 1.735-3.799 4.41v8.17c0 2.68 1.472 4.412 3.799 4.412h7.917c2.328 0 3.807-1.734 3.807-4.411v-8.17c0-2.678-1.478-4.411-3.807-4.411zm.65 8.68l.12.125 1.9 2.147a.803.803 0 01-.016 1.063.642.642 0 01-.894.058l-.076-.074-1.9-2.148a.806.806 0 00-1.205-.028l-.074.087-2.04 2.717c-.722.963-2.02 1.066-2.86.26l-.111-.116-.814-.91a.562.562 0 00-.793-.07l-.075.073-1.4 1.617a.645.645 0 01-.97.029.805.805 0 01-.09-.977l.064-.086 1.4-1.617c.736-.852 1.95-.897 2.734-.137l.114.12.81.905a.587.587 0 00.861.033l.07-.078 2.04-2.718c.81-1.08 2.27-1.19 3.205-.275zM6.831 4.64c1.265 0 2.292 1.125 2.292 2.51 0 1.386-1.027 2.511-2.292 2.511S4.54 8.537 4.54 7.152c0-1.386 1.026-2.51 2.291-2.51zm0 1.504c-.507 0-.918.451-.918 1.007 0 .555.411 1.006.918 1.006.507 0 .919-.451.919-1.006 0-.556-.412-1.007-.919-1.007z" />
@@ -335,7 +509,7 @@ export default function MiddleContent() {
                   </button>
                 </div>
                 <div className="_feed_inner_text_area_bottom_video _feed_common">
-                  <button type="button" className="_feed_inner_text_area_bottom_photo_link">
+                  <button type="button" className="_feed_inner_text_area_bottom_photo_link" onClick={() => handlePhotoClick("video")}>
                     <span className="_feed_inner_text_area_bottom_photo_iamge _mar_img">
                       <svg xmlns="http://www.w3.org/2000/svg" width="22" height="24" fill="none" viewBox="0 0 22 24">
                         <path fill="#666" d="M11.485 4.5c2.213 0 3.753 1.534 3.917 3.784l2.418-1.082c1.047-.468 2.188.327 2.271 1.533l.005.141v6.64c0 1.237-1.103 2.093-2.155 1.72l-.121-.047-2.418-1.083c-.164 2.25-1.708 3.785-3.917 3.785H5.76c-2.343 0-3.932-1.72-3.932-4.188V8.688c0-2.47 1.589-4.188 3.932-4.188h5.726zm0 1.5H5.76C4.169 6 3.197 7.05 3.197 8.688v7.015c0 1.636.972 2.688 2.562 2.688h5.726c1.586 0 2.562-1.054 2.562-2.688v-.686-6.329c0-1.636-.973-2.688-2.562-2.688zM18.4 8.57l-.062.02-2.921 1.306v4.596l2.921 1.307c.165.073.343-.036.38-.215l.008-.07V8.876c0-.195-.16-.334-.326-.305z" />
@@ -380,7 +554,7 @@ export default function MiddleContent() {
               <div className="_feed_inner_text_mobile">
                 <div className="_feed_inner_text_area_item">
                   <div className="_feed_inner_text_area_bottom_photo _feed_common">
-                    <button type="button" className="_feed_inner_text_area_bottom_photo_link">
+                    <button type="button" className="_feed_inner_text_area_bottom_photo_link" onClick={() => handlePhotoClick("image")}>
                       <span className="_feed_inner_text_area_bottom_photo_iamge _mar_img">
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 20 20">
                           <path fill="#666" d="M13.916 0c3.109 0 5.18 2.429 5.18 5.914v8.17c0 3.486-2.072 5.916-5.18 5.916H5.999C2.89 20 .827 17.572.827 14.085v-8.17C.827 2.43 2.897 0 6 0h7.917zm0 1.504H5.999c-2.321 0-3.799 1.735-3.799 4.41v8.17c0 2.68 1.472 4.412 3.799 4.412h7.917c2.328 0 3.807-1.734 3.807-4.411v-8.17c0-2.678-1.478-4.411-3.807-4.411zm.65 8.68l.12.125 1.9 2.147a.803.803 0 01-.016 1.063.642.642 0 01-.894.058l-.076-.074-1.9-2.148a.806.806 0 00-1.205-.028l-.074.087-2.04 2.717c-.722.963-2.02 1.066-2.86.26l-.111-.116-.814-.91a.562.562 0 00-.793-.07l-.075.073-1.4 1.617a.645.645 0 01-.97.029.805.805 0 01-.09-.977l.064-.086 1.4-1.617c.736-.852 1.95-.897 2.734-.137l.114.12.81.905a.587.587 0 00.861.033l.07-.078 2.04-2.718c.81-1.08 2.27-1.19 3.205-.275zM6.831 4.64c1.265 0 2.292 1.125 2.292 2.51 0 1.386-1.027 2.511-2.292 2.511S4.54 8.537 4.54 7.152c0-1.386 1.026-2.51 2.291-2.51zm0 1.504c-.507 0-.918.451-.918 1.007 0 .555.411 1.006.918 1.006.507 0 .919-.451.919-1.006 0-.556-.412-1.007-.919-1.007z" />
@@ -389,7 +563,7 @@ export default function MiddleContent() {
                     </button>
                   </div>
                   <div className="_feed_inner_text_area_bottom_video _feed_common">
-                    <button type="button" className="_feed_inner_text_area_bottom_photo_link">
+                    <button type="button" className="_feed_inner_text_area_bottom_photo_link" onClick={() => handlePhotoClick("video")}>
                       <span className="_feed_inner_text_area_bottom_photo_iamge _mar_img">
                         <svg xmlns="http://www.w3.org/2000/svg" width="22" height="24" fill="none" viewBox="0 0 22 24">
                           <path fill="#666" d="M11.485 4.5c2.213 0 3.753 1.534 3.917 3.784l2.418-1.082c1.047-.468 2.188.327 2.271 1.533l.005.141v6.64c0 1.237-1.103 2.093-2.155 1.72l-.121-.047-2.418-1.083c-.164 2.25-1.708 3.785-3.917 3.785H5.76c-2.343 0-3.932-1.72-3.932-4.188V8.688c0-2.47 1.589-4.188 3.932-4.188h5.726zm0 1.5H5.76C4.169 6 3.197 7.05 3.197 8.688v7.015c0 1.636.972 2.688 2.562 2.688h5.726c1.586 0 2.562-1.054 2.562-2.688v-.686-6.329c0-1.636-.973-2.688-2.562-2.688zM18.4 8.57l-.062.02-2.921 1.306v4.596l2.921 1.307c.165.073.343-.036.38-.215l.008-.07V8.876c0-.195-.16-.334-.326-.305z" />
@@ -428,8 +602,30 @@ export default function MiddleContent() {
           </div>
 
           {/* Timeline Feed Posts */}
-          {posts.map((post) => (
-            <div className="_feed_inner_timeline_post_area _b_radious6 _padd_b24 _padd_t24 _mar_b16" key={post.id}>
+          {isLoading && (
+            <div style={{ textAlign: "center", padding: "40px 0", color: "#666" }}>
+              <div style={{ display: "inline-block", width: "30px", height: "30px", border: "3px solid #ccc", borderTopColor: "#377DFF", borderRadius: "50%", animation: "spin 1s linear infinite" }}></div>
+              <p style={{ marginTop: "12px", fontSize: "14px" }}>Loading feed posts...</p>
+              <style>{`
+                @keyframes spin {
+                  to { transform: rotate(360deg); }
+                }
+              `}</style>
+            </div>
+          )}
+          {!isLoading && posts.length === 0 && (
+            <div style={{ textAlign: "center", padding: "40px 24px", color: "#666", background: "white", borderRadius: "6px" }}>
+              <p style={{ margin: 0, fontSize: "15px" }}>No posts found. Be the first to share something!</p>
+            </div>
+          )}
+          {posts.map((post, index) => {
+            const isTriggerPost = posts.length >= 6 ? index === posts.length - 6 : index === posts.length - 1;
+            return (
+              <div
+                ref={isTriggerPost ? loadMoreRef : undefined}
+                className="_feed_inner_timeline_post_area _b_radious6 _padd_b24 _padd_t24 _mar_b16"
+                key={post.id}
+              >
               <div className="_feed_inner_timeline_content _padd_r24 _padd_l24">
                 <div className="_feed_inner_timeline_post_top">
                   <div className="_feed_inner_timeline_post_box">
@@ -665,7 +861,23 @@ export default function MiddleContent() {
                 )}
               </div>
             </div>
-          ))}
+            );
+          })}
+
+          {/* Infinite Scroll trigger element */}
+          <div ref={loadMoreRef} style={{ height: "60px", margin: "24px 0", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            {isFetchingNextPage && (
+              <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#666", fontSize: "14px" }}>
+                <div style={{ display: "inline-block", width: "20px", height: "20px", border: "2px solid #ccc", borderTopColor: "#377DFF", borderRadius: "50%", marginRight: "10px", animation: "spin 0.8s linear infinite" }}></div>
+                <span>Loading more posts...</span>
+                <style>{`
+                  @keyframes spin {
+                    to { transform: rotate(360deg); }
+                  }
+                `}</style>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
