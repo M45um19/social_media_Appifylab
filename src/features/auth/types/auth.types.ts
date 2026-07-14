@@ -80,3 +80,13 @@ export type LoginResponse = ApiResponse<{
     createdAt: string;
   };
 }>;
+
+// ============================================================================
+// Logout Types
+// ============================================================================
+
+export interface LogoutInput {
+  deviceId: string;
+}
+
+export type LogoutResponse = ApiResponse<null>;

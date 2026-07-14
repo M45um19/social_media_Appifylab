@@ -4,6 +4,8 @@ import {
   RegisterResponse,
   LoginInput,
   LoginResponse,
+  LogoutInput,
+  LogoutResponse,
 } from "../types/auth.types";
 
 export const authService = {
@@ -28,6 +30,14 @@ export const authService = {
       email: input.email,
       password: input.password,
     });
+    return response.data;
+  },
+
+  /**
+   * Logs out the current user.
+   */
+  async logout(input: LogoutInput): Promise<LogoutResponse> {
+    const response = await apiClient.post<LogoutResponse>("/auth/logout", input);
     return response.data;
   },
 };

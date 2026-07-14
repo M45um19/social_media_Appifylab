@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { getCookie } from "@/utils/cookies";
+import { useLogout } from "@/features/auth/hooks/use-auth";
 
 export default function Header() {
   const [showNotify, setShowNotify] = useState(false);
@@ -17,6 +18,14 @@ export default function Header() {
 
   const notifyRef = useRef<HTMLLIElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
+
+  const logoutMutation = useLogout();
+
+  const handleLogout = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const deviceId = getCookie("deviceId") || "";
+    logoutMutation.mutate({ deviceId });
+  };
 
   useEffect(() => {
     const userJson = getCookie("user");
@@ -265,10 +274,10 @@ export default function Header() {
               </li>
             </ul>
             <div className="_header_nav_profile" ref={profileRef}>
-              <div className="_header_nav_profile_image">
+              <div className="_header_nav_profile_image" onClick={() => setShowProfile(!showProfile)} style={{ cursor: "pointer" }}>
                 <img src={userProfile?.profilePicture || "/assets/images/profile.png"} alt="Image" className="_nav_profile_img" />
               </div>
-              <div className="_header_nav_dropdown">
+              <div className="_header_nav_dropdown" onClick={() => setShowProfile(!showProfile)} style={{ cursor: "pointer" }}>
                 <p className="_header_nav_para">
                   {userProfile ? `${userProfile.firstName} ${userProfile.lastName}` : "Dylan Field"}
                 </p>
@@ -276,7 +285,6 @@ export default function Header() {
                   id="_profile_drop_show_btn"
                   className="_header_nav_dropdown_btn _dropdown_toggle"
                   type="button"
-                  onClick={() => setShowProfile(!showProfile)}
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" width="10" height="6" fill="none" viewBox="0 0 10 6">
                     <path
@@ -342,7 +350,7 @@ export default function Header() {
                     </a>
                   </li>
                   <li className="_nav_dropdown_list_item">
-                    <a href="#" className="_nav_dropdown_link">
+                    <a href="#" className="_nav_dropdown_link" onClick={handleLogout}>
                       <div className="_nav_drop_info">
                         <span>
                           <svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" fill="none" viewBox="0 0 19 19">
