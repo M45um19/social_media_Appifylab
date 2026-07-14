@@ -1,12 +1,14 @@
 import { useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { authService } from "../services/auth.service";
-import { setCookie } from "@/utils/cookies";
+import { setCookie, deleteCookie } from "@/utils/cookies";
 import {
   LoginInput,
   LoginResponse,
   RegisterInput,
   RegisterResponse,
+  LogoutInput,
+  LogoutResponse,
 } from "../types/auth.types";
 
 /**
@@ -55,6 +57,33 @@ export function useRegister() {
     },
     onError: (error) => {
       console.error("Registration mutation failed:", error);
+    },
+  });
+}
+
+/**
+ * Custom hook to handle logout mutation lifecycle.
+ */
+export function useLogout() {
+  const router = useRouter();
+
+  return useMutation<LogoutResponse, Error, LogoutInput>({
+    mutationFn: (input) => authService.logout(input),
+    onSuccess: (data) => {
+      console.log("Logout mutation succeeded:", data);
+      deleteCookie("accessToken");
+      deleteCookie("refreshToken");
+      deleteCookie("deviceId");
+      deleteCookie("user");
+      router.push("/login");
+    },
+    onError: (error) => {
+      console.error("Logout mutation failed:", error);
+      deleteCookie("accessToken");
+      deleteCookie("refreshToken");
+      deleteCookie("deviceId");
+      deleteCookie("user");
+      router.push("/login");
     },
   });
 }

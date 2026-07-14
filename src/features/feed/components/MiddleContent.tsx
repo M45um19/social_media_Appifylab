@@ -9,6 +9,7 @@ import {
   useToggleLike,
   useAddComment,
 } from "@/features/posts/hooks/use-posts";
+import { PostRecentComment } from "@/features/posts/types/posts.types";
 
 interface Comment {
   id: number | string;
@@ -112,6 +113,100 @@ export default function MiddleContent() {
     }
   };
 
+  const isVideoUrl = (url?: string): boolean => {
+    if (!url) return false;
+    const cleanUrl = url.toLowerCase().split("?")[0];
+    return (
+      cleanUrl.endsWith(".mp4") ||
+      cleanUrl.endsWith(".webm") ||
+      cleanUrl.endsWith(".ogg") ||
+      cleanUrl.endsWith(".mov") ||
+      cleanUrl.endsWith(".mkv") ||
+      cleanUrl.endsWith(".avi") ||
+      url.includes("/video/upload/")
+    );
+  };
+
+  const getNestedComments = (postId: string | number, recentComment?: PostRecentComment | null): Comment[] => {
+    const rawComments: Comment[] = [];
+
+    if (recentComment) {
+      const recentCommentId = `recent-${postId}`;
+      rawComments.push({
+        id: recentCommentId,
+        name: (recentComment.firstName && recentComment.lastName)
+          ? `${recentComment.firstName} ${recentComment.lastName}`
+          : "User",
+        avatar: recentComment.profilePicture || "/assets/images/comment_img.png",
+        text: recentComment.text,
+        time: "1m",
+        likes: 0,
+        replies: recentComment.reply
+          ? [
+              {
+                id: `recent-reply-${postId}`,
+                name: (recentComment.reply.firstName && recentComment.reply.lastName)
+                  ? `${recentComment.reply.firstName} ${recentComment.reply.lastName}`
+                  : "User",
+                avatar: recentComment.reply.profilePicture || "/assets/images/comment_img.png",
+                text: recentComment.reply.text,
+                time: "1m",
+                likes: 0,
+              }
+            ]
+          : [],
+      });
+    }
+
+    const localCommentsForPost = localComments[postId] || [];
+    localCommentsForPost.forEach((lc) => {
+      if (recentComment && recentComment.text === lc.text && !lc.parentId) {
+        return;
+      }
+      rawComments.push({
+        id: lc.id,
+        name: lc.name,
+        avatar: lc.avatar,
+        text: lc.text,
+        time: lc.time,
+        likes: lc.likes,
+        parentId: lc.parentId,
+        replies: lc.replies || [],
+      });
+    });
+
+    const topLevelComments: Comment[] = [];
+    const replyComments: Comment[] = [];
+
+    rawComments.forEach((c) => {
+      if (c.parentId) {
+        replyComments.push(c);
+      } else {
+        topLevelComments.push(c);
+      }
+    });
+
+    replyComments.forEach((rc) => {
+      const parent = topLevelComments.find((tc) => {
+        const tcCleanId = tc.id.toString().replace(/^recent-/, "");
+        const rcCleanParentId = rc.parentId?.toString().replace(/^recent-/, "");
+        return tcCleanId === rcCleanParentId;
+      });
+      if (parent) {
+        if (!parent.replies) {
+          parent.replies = [];
+        }
+        if (!parent.replies.some((existing) => existing.id === rc.id || existing.text === rc.text)) {
+          parent.replies.push(rc);
+        }
+      } else {
+        topLevelComments.push(rc);
+      }
+    });
+
+    return topLevelComments;
+  };
+
   // Derive posts directly from infinite query pages
   const queryPosts: Post[] = feedData?.pages
     ? feedData.pages.flatMap((page) => {
@@ -128,32 +223,29 @@ export default function MiddleContent() {
         const reacts = baseLikes + diff;
 
         // Merge backend comments with local comments
-        const commentsList: Comment[] = [
-          ...(p.recentComment
-            ? [
-              {
-                id: `recent-${p.id}`,
-                name: (p.recentComment.firstName && p.recentComment.lastName)
-                  ? `${p.recentComment.firstName} ${p.recentComment.lastName}`
-                  : "User",
-                avatar: p.recentComment.profilePicture || "/assets/images/comment_img.png",
-                text: p.recentComment.text,
-                time: "1m",
-                likes: 0,
-              },
-            ]
-            : []),
-          ...(localComments[p.id] || [])
-            .filter((c) => !p.recentComment || p.recentComment.text !== c.text)
-            .map((c) => ({
-              id: c.id,
-              name: c.name,
-              avatar: c.avatar,
-              text: c.text,
-              time: c.time,
-              likes: c.likes,
-            })),
-        ];
+        const commentsList = getNestedComments(p.id, p.recentComment);
+
+        // Derive recentLikers list based on hasLiked
+        let derivedLikers = p.recentLikers || [];
+        if (currentUser) {
+          const isUserInList = derivedLikers.some((liker) => liker.id === currentUser.id);
+          if (hasLiked) {
+            if (!isUserInList) {
+              derivedLikers = [
+                {
+                  id: currentUser.id,
+                  name: `${currentUser.firstName} ${currentUser.lastName}`,
+                  pic: currentUser.profilePicture,
+                },
+                ...derivedLikers,
+              ];
+            }
+          } else {
+            if (isUserInList) {
+              derivedLikers = derivedLikers.filter((liker) => liker.id !== currentUser.id);
+            }
+          }
+        }
 
         return {
           id: p.id,
@@ -169,13 +261,13 @@ export default function MiddleContent() {
           hasLiked,
           comments: commentsList,
           showDropdown: p.id === activeDropdownPostId,
-          recentLikers: p.recentLikers,
+          recentLikers: derivedLikers,
         };
       });
     })
     : [];
 
-  const visiblePosts = queryPosts.filter((p) => !deletedPostIds.has(p.id));
+  const visibleQueryPosts = queryPosts.filter((p) => !deletedPostIds.has(p.id));
 
   const mappedLocallyCreated = locallyCreatedPosts.map((p) => {
     const hasLiked = localLikesToggle[p.id] !== undefined
@@ -188,9 +280,29 @@ export default function MiddleContent() {
       : 0;
     const reacts = baseLikes + diff;
 
-    const commentsList = [
-      ...(localComments[p.id] || []),
-    ];
+    const commentsList = getNestedComments(p.id, undefined);
+
+    // Derive recentLikers list based on hasLiked
+    let derivedLikers = p.recentLikers || [];
+    if (currentUser) {
+      const isUserInList = derivedLikers.some((liker) => liker.id === currentUser.id);
+      if (hasLiked) {
+        if (!isUserInList) {
+          derivedLikers = [
+            {
+              id: currentUser.id,
+              name: `${currentUser.firstName} ${currentUser.lastName}`,
+              pic: currentUser.profilePicture,
+            },
+            ...derivedLikers,
+          ];
+        }
+      } else {
+        if (isUserInList) {
+          derivedLikers = derivedLikers.filter((liker) => liker.id !== currentUser.id);
+        }
+      }
+    }
 
     return {
       ...p,
@@ -199,11 +311,15 @@ export default function MiddleContent() {
       hasLiked,
       comments: commentsList,
       showDropdown: p.id === activeDropdownPostId,
-      recentLikers: p.recentLikers || [],
+      recentLikers: derivedLikers,
     };
   });
 
-  const posts = [...mappedLocallyCreated, ...visiblePosts];
+  const visibleLocallyCreated = mappedLocallyCreated.filter(
+    (lp) => !deletedPostIds.has(lp.id) && !visibleQueryPosts.some((qp) => qp.id.toString() === lp.id.toString())
+  );
+
+  const posts = [...visibleLocallyCreated, ...visibleQueryPosts];
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -339,6 +455,14 @@ export default function MiddleContent() {
 
     // Perform mutation
     toggleLikeMutation.mutate(postId.toString(), {
+      onSuccess: () => {
+        // Clear local optimistic override once cache is successfully updated
+        setLocalLikesToggle((prev) => {
+          const next = { ...prev };
+          delete next[postId];
+          return next;
+        });
+      },
       onError: (err) => {
         console.error("Failed to toggle like:", err);
         // Rollback optimistic update
@@ -424,6 +548,7 @@ export default function MiddleContent() {
               text: comment.content,
               time: "Just now",
               likes: 0,
+              parentId: commentId.toString(),
             };
 
             setLocalComments((prev) => ({
@@ -578,7 +703,7 @@ export default function MiddleContent() {
           <div className="_feed_inner_text_area _b_radious6 _padd_b24 _padd_t24 _padd_r24 _padd_l24 _mar_b16">
             <div className="_feed_inner_text_area_box">
               <div className="_feed_inner_text_area_box_image">
-                <img src="/assets/images/txt_img.png" alt="Image" className="_txt_img" />
+                <img src={currentUser?.profilePicture || "/assets/images/txt_img.png"} alt="Image" className="_txt_img" />
               </div>
               <div className="form-floating _feed_inner_text_area_box_form">
                 <textarea
@@ -764,9 +889,9 @@ export default function MiddleContent() {
 
           {/* Timeline Feed Posts */}
           {isLoading && (
-            <div style={{ textAlign: "center", padding: "40px 0", color: "#666" }}>
+            <div style={{ textAlign: "center", padding: "40px 0" }}>
               <div style={{ display: "inline-block", width: "30px", height: "30px", border: "3px solid #ccc", borderTopColor: "#377DFF", borderRadius: "50%", animation: "spin 1s linear infinite" }}></div>
-              <p style={{ marginTop: "12px", fontSize: "14px" }}>Loading feed posts...</p>
+              <p className="_feed_no_posts_title" style={{ marginTop: "12px", fontSize: "14px" }}>Loading feed posts...</p>
               <style>{`
                 @keyframes spin {
                   to { transform: rotate(360deg); }
@@ -775,8 +900,8 @@ export default function MiddleContent() {
             </div>
           )}
           {!isLoading && posts.length === 0 && (
-            <div style={{ textAlign: "center", padding: "40px 24px", color: "#666", background: "white", borderRadius: "6px" }}>
-              <p style={{ margin: 0, fontSize: "15px" }}>No posts found. Be the first to share something!</p>
+            <div className="_feed_no_posts_container _b_radious6 _mar_b16">
+              <p className="_feed_no_posts_title" style={{ margin: 0, fontSize: "15px" }}>No posts found. Be the first to share something!</p>
             </div>
           )}
           {posts.map((post, index) => {
@@ -859,27 +984,38 @@ export default function MiddleContent() {
                   <h4 className="_feed_inner_timeline_post_title">{post.title}</h4>
                   {post.image && (
                     <div className="_feed_inner_timeline_image">
-                      <img src={post.image} alt="" className="_time_img" />
+                      {isVideoUrl(post.image) ? (
+                        <video
+                          src={post.image}
+                          controls
+                          className="_time_img"
+                          style={{ width: "100%", maxHeight: "450px", background: "#000" }}
+                        />
+                      ) : (
+                        <img src={post.image} alt="" className="_time_img" />
+                      )}
                     </div>
                   )}
                 </div>
                 <div className="_feed_inner_timeline_total_reacts _padd_r24 _padd_l24 _mar_b26">
-                  <div className="_feed_inner_timeline_total_reacts_image">
-                    {post.recentLikers && post.recentLikers.length > 0 ? (
-                      post.recentLikers.slice(0, 5).map((liker, lIndex) => (
-                        <img
-                          key={liker.id}
-                          src={liker.pic || "/assets/images/comment_img.png"}
-                          alt={liker.name}
-                          className={lIndex === 0 ? "_react_img1" : "_react_img"}
-                          title={liker.name}
-                        />
-                      ))
-                    ) : (
-                      <img src="/assets/images/react_img1.png" alt="React" className="_react_img1" />
-                    )}
-                    <p className="_feed_inner_timeline_total_reacts_para">{post.reacts}</p>
-                  </div>
+                  {post.reacts > 0 ? (
+                    <div className="_feed_inner_timeline_total_reacts_image">
+                      {post.recentLikers && post.recentLikers.length > 0 && (
+                        post.recentLikers.slice(0, 5).map((liker, lIndex) => (
+                          <img
+                            key={liker.id}
+                            src={liker.pic || "/assets/images/comment_img.png"}
+                            alt={liker.name}
+                            className={lIndex === 0 ? "_react_img1" : "_react_img"}
+                            title={liker.name}
+                          />
+                        ))
+                      )}
+                      <p className="_feed_inner_timeline_total_reacts_para">{post.reacts}</p>
+                    </div>
+                  ) : (
+                    <div />
+                  )}
                   <div className="_feed_inner_timeline_total_reacts_txt">
                     <p
                       className="_feed_inner_timeline_total_reacts_para1"
@@ -940,7 +1076,7 @@ export default function MiddleContent() {
                     <form className="_feed_inner_comment_box_form" onSubmit={(e) => handleAddComment(post.id, e)}>
                       <div className="_feed_inner_comment_box_content">
                         <div className="_feed_inner_comment_box_content_image">
-                          <img src="/assets/images/comment_img.png" alt="" className="_comment_img" />
+                          <img src={currentUser?.profilePicture || "/assets/images/comment_img.png"} alt="" className="_comment_img" />
                         </div>
                         <div className="_feed_inner_comment_box_content_txt">
                           <textarea
@@ -1030,46 +1166,78 @@ export default function MiddleContent() {
                                     <li><span className="_time_link">.{comment.time}</span></li>
                                   </ul>
                                 </div>
-                                {/* Reply Form */}
-                                {activeReplyCommentId === comment.id && (
-                                  <div style={{ marginTop: "12px", paddingLeft: "8px", display: "flex", width: "100%" }}>
-                                    <form
-                                      onSubmit={(e) => handleAddReply(post.id, comment.id, e)}
-                                      style={{ display: "flex", gap: "8px", alignItems: "center", width: "100%" }}
-                                    >
-                                      <img
-                                        src="/assets/images/comment_img.png"
-                                        alt=""
-                                        style={{ width: "24px", height: "24px", borderRadius: "50%" }}
-                                      />
-                                      <input
-                                        type="text"
-                                        className="form-control"
-                                        placeholder="Write a reply..."
-                                        value={replyInputs[comment.id] || ""}
-                                        onChange={(e) => setReplyInputs({ ...replyInputs, [comment.id]: e.target.value })}
-                                        style={{ fontSize: "13px", height: "30px", borderRadius: "16px", flex: 1 }}
-                                      />
-                                      <button
-                                        type="submit"
-                                        style={{
-                                          background: "#377DFF",
-                                          color: "white",
-                                          border: "none",
-                                          borderRadius: "15px",
-                                          padding: "4px 12px",
-                                          fontSize: "12px",
-                                          cursor: "pointer",
-                                          height: "30px"
-                                        }}
-                                      >
-                                        Send
-                                      </button>
-                                    </form>
-                                  </div>
-                                )}
                               </div>
                             </div>
+
+                            {/* Reply Form (moved outside _comment_details to avoid Send button clashing with reactions) */}
+                            {activeReplyCommentId === comment.id && (
+                              <div style={{ marginTop: "42px", marginBottom: "16px", paddingLeft: "12px", display: "flex", width: "100%" }}>
+                                <form
+                                  onSubmit={(e) => handleAddReply(post.id, comment.id, e)}
+                                  style={{ display: "flex", gap: "8px", alignItems: "center", width: "100%" }}
+                                >
+                                  <img
+                                    src={currentUser?.profilePicture || "/assets/images/comment_img.png"}
+                                    alt=""
+                                    style={{ width: "24px", height: "24px", borderRadius: "50%" }}
+                                  />
+                                  <input
+                                    type="text"
+                                    className="form-control"
+                                    placeholder="Write a reply..."
+                                    value={replyInputs[comment.id] || ""}
+                                    onChange={(e) => setReplyInputs({ ...replyInputs, [comment.id]: e.target.value })}
+                                    style={{ fontSize: "13px", height: "30px", borderRadius: "16px", flex: 1 }}
+                                  />
+                                  <button
+                                    type="submit"
+                                    style={{
+                                      background: "#377DFF",
+                                      color: "white",
+                                      border: "none",
+                                      borderRadius: "15px",
+                                      padding: "4px 12px",
+                                      fontSize: "12px",
+                                      cursor: "pointer",
+                                      height: "30px"
+                                    }}
+                                  >
+                                    Send
+                                  </button>
+                                </form>
+                              </div>
+                            )}
+
+                            {/* Nested Replies Rendering */}
+                            {comment.replies && comment.replies.length > 0 && (
+                              <div className="_comment_replies_list" style={{ marginLeft: "20px", marginTop: activeReplyCommentId === comment.id ? "8px" : "42px" }}>
+                                {comment.replies.map((reply) => (
+                                  <div className="_comment_main _reply_main" key={reply.id} style={{ marginTop: "12px" }}>
+                                    <div className="_comment_image" style={{ width: "32px", height: "32px", flex: "0 0 32px" }}>
+                                      <a href="#" className="_comment_image_link">
+                                        <img src={reply.avatar} alt="" className="_comment_img1" style={{ maxWidth: "32px" }} />
+                                      </a>
+                                    </div>
+                                    <div className="_comment_area" style={{ margin: "0 0 0 12px" }}>
+                                      <div className="_comment_details" style={{ padding: "8px 12px", margin: "0 0 8px", maxWidth: "fit-content" }}>
+                                        <div className="_comment_details_top">
+                                          <div className="_comment_name">
+                                            <a href="#">
+                                              <h4 className="_comment_name_title" style={{ fontSize: "13px" }}>{reply.name}</h4>
+                                            </a>
+                                          </div>
+                                        </div>
+                                        <div className="_comment_status">
+                                          <p className="_comment_status_text" style={{ fontSize: "13px" }}>
+                                            <span>{reply.text}</span>
+                                          </p>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
                       ))}

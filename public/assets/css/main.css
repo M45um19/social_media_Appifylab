@@ -6020,3 +6020,25 @@
     margin:0 6px 0 0;
 }
 /*--- chat mobile seetings css end ----*/
+
+/*--- Feed empty state css ---*/
+._feed_no_posts_container {
+    text-align: center;
+    padding: 40px 24px;
+    background: var(--bg2);
+    -webkit-transition: .2s all ease;
+    -o-transition: .2s all ease;
+    transition: .2s all ease;
+}
+._dark_wrapper ._feed_no_posts_container {
+    background: var(--bg5);
+}
+._feed_no_posts_title {
+    color: #666666;
+    -webkit-transition: .2s all ease;
+    -o-transition: .2s all ease;
+    transition: .2s all ease;
+}
+._dark_wrapper ._feed_no_posts_title {
+    color: var(--bg2);
+}
