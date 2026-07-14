@@ -76,9 +76,67 @@ export function useToggleLike() {
 
   return useMutation<ToggleLikeResponse, Error, string>({
     mutationFn: (postId) => postsService.toggleLike(postId),
-    onSuccess: (data) => {
-      if (data.success) {
-        queryClient.invalidateQueries({ queryKey: ["globalFeed"] });
+    onSuccess: (data, postId) => {
+      if (data.success && data.data) {
+        const isLiked = data.data.liked;
+        queryClient.setQueriesData<any>({ queryKey: ["globalFeed"] }, (oldData: any) => {
+          if (!oldData) return oldData;
+          if (oldData.pages) {
+            return {
+              ...oldData,
+              pages: oldData.pages.map((page: any) => {
+                if (!page.data?.posts) return page;
+                return {
+                  ...page,
+                  data: {
+                    ...page.data,
+                    posts: page.data.posts.map((post: any) => {
+                      if (post.id === postId) {
+                        let newLikesCount = post.likesCount;
+                        if (isLiked && !post.isLiked) {
+                          newLikesCount = (post.likesCount || 0) + 1;
+                        } else if (!isLiked && post.isLiked) {
+                          newLikesCount = Math.max(0, (post.likesCount || 0) - 1);
+                        }
+                        return {
+                          ...post,
+                          isLiked: isLiked,
+                          likesCount: newLikesCount,
+                        };
+                      }
+                      return post;
+                    }),
+                  },
+                };
+              }),
+            };
+          }
+          if (oldData.data?.posts) {
+            return {
+              ...oldData,
+              data: {
+                ...oldData.data,
+                posts: oldData.data.posts.map((post: any) => {
+                  if (post.id === postId) {
+                    let newLikesCount = post.likesCount;
+                    if (isLiked && !post.isLiked) {
+                      newLikesCount = (post.likesCount || 0) + 1;
+                    } else if (!isLiked && post.isLiked) {
+                      newLikesCount = Math.max(0, (post.likesCount || 0) - 1);
+                    }
+                    return {
+                      ...post,
+                      isLiked: isLiked,
+                      likesCount: newLikesCount,
+                    };
+                  }
+                  return post;
+                }),
+              },
+            };
+          }
+          return oldData;
+        });
       }
     },
   });
